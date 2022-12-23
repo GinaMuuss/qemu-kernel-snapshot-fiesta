@@ -1,0 +1,8 @@
+rootfs*
+*.busyboxinit
+share
+*.o
+snapshots
+*.busyboxinit
+.vscode
+*.o.*
