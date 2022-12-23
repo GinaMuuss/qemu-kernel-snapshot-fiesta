@@ -10,3 +10,10 @@ To build the snapshot for an architecture (for example `riscv64`) run:
 ```bash 
 make riscv64.qcow2
 ```
+
+
+Afterwards you can run your file (in this example `example.riscv64.asm`) using 
+
+```bash 
+make example.riscv64.run
+```

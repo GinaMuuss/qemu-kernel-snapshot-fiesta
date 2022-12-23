@@ -1,12 +1,13 @@
 nproc=4
 
-%.arm64: arm64
+%.aarch64: aarch64
 	echo $@
 
-arm64:
+aarch64:
 	$(eval ARCH=arm64)
-	$(eval QEMU_SUFFIX=arm64)
+	$(eval QEMU_SUFFIX=aarch64)
 	$(eval CROSS_COMPILE = aarch64-linux-gnu-)
+	$(eval ADDITIONAL_QEMU_ARGS=-cpu cortex-a53 -smp 2 -m 2048 -bios /usr/share/edk2/aarch64/QEMU_EFI.fd)
 
 %.riscv64: riscv64
 	echo $@
@@ -15,6 +16,15 @@ riscv64:
 	$(eval ARCH=riscv)
 	$(eval QEMU_SUFFIX=riscv64)
 	$(eval CROSS_COMPILE = riscv64-linux-gnu-)
+	$(eval ADDITIONAL_QEMU_ARGS=)
+
+%.aarch64.o: %.aarch64.asm
+	aarch64-linux-gnu-as $< -g -o $@
+
+%.aarch64.elf: %.aarch64.o
+	mkdir -p share
+	aarch64-linux-gnu-ld -o share/$@ $<
+
 
 %.riscv64.o: %.riscv64.asm
 	riscv64-linux-gnu-as $< -g -o $@
@@ -32,15 +42,11 @@ snapshots:
 
 
 %.qcow2: snapshots %.busyboxinit
-ifneq ("$(wildcard snapshots/$@)","")
-	echo "snapshot exists, so we assume everything else exists as well"
-else
 	qemu-img create -f qcow2 snapshots/$@ 32M
-	qemu-system-$(QEMU_SUFFIX) -nographic -monitor unix:qemu-monitor-socket.$*,server,nowait -machine virt -kernel linux/arch/$(ARCH)/boot/Image -append "root=/dev/vda ro console=ttyS0" -drive file=$*.busyboxinit,format=raw,id=hd0,readonly=on -device virtio-blk-device,drive=hd0 -virtfs local,path=./share,mount_tag=sda,security_model=mapped,readonly=on -drive if=none,format=qcow2,file=snapshots/$@ &
-	sleep 10
+	qemu-system-$(QEMU_SUFFIX) -nographic -monitor unix:qemu-monitor-socket.$*,server,nowait -machine virt -kernel linux/arch/$(ARCH)/boot/Image -append "root=/dev/vda ro console=ttyS0" -drive file=$*.busyboxinit,format=raw,id=hd0,readonly=on,if=none -device virtio-blk-device,drive=hd0 -virtfs local,path=./share,mount_tag=sda,security_model=mapped,readonly=on -drive if=none,format=qcow2,file=snapshots/$@ $(ADDITIONAL_QEMU_ARGS) &
+	sleep 60
 	echo "savevm snapshot1" | socat - unix-connect:qemu-monitor-socket.$*
 	echo "quit" | socat - unix-connect:qemu-monitor-socket.$*
-endif
 
 .PRECIOUS: %.busyboxinit
 %.busyboxinit: % %.kernel
@@ -67,7 +73,8 @@ endif
 
 
 %.run: % %.elf
-	echo -e "\n mount -t 9p -o trans=virtio sda /mnt\n /mnt/$@.elf > /mnt/output \n halt -f" | qemu-system-$(QEMU_SUFFIX) -nographic -machine virt -kernel linux/arch/$(ARCH)/boot/Image -append "root=/dev/vda ro console=ttyS0" -drive file=$(QEMU_SUFFIX).busyboxinit,format=raw,id=hd0,readonly=on -device virtio-blk-device,drive=hd0 -virtfs local,path=./share,mount_tag=sda,security_model=mapped -drive if=none,format=qcow2,file=snapshots/$(QEMU_SUFFIX).qcow2 -loadvm snapshot1
+	echo $(ADDITIONAL_QEMU_ARGS)
+	echo -e "\n mount -t 9p -o trans=virtio sda /mnt\n /mnt/$*.elf > /mnt/output \n halt -f" | qemu-system-$(QEMU_SUFFIX) -nographic -monitor unix:qemu-monitor-socket.$(ARCH),server,nowait -machine virt -kernel linux/arch/$(ARCH)/boot/Image -append "root=/dev/vda ro console=ttyS0" -drive file=$(QEMU_SUFFIX).busyboxinit,format=raw,id=hd0,readonly=on,if=none -device virtio-blk-device,drive=hd0 -virtfs local,path=./share,mount_tag=sda,security_model=mapped -drive if=none,format=qcow2,file=snapshots/$(QEMU_SUFFIX).qcow2 $(ADDITIONAL_QEMU_ARGS) -loadvm snapshot1
 
 clean:
 	rm -r snapshots
